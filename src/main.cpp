@@ -1,494 +1,212 @@
 // ============================================================================
-// Big O Demo: Linked Lists
+// Big O Demo: Linked Lists -- Time Complexity
 // ============================================================================
-// This demo times linked list operations at increasing input sizes so you can
-// SEE the difference between O(1) and O(n) growth patterns.
+// Times the same operations on three structures, at doubling sizes, so you
+// can SEE which one each operation favors:
 //
-// Not graded — run it, read the output, and observe the patterns.
+//                     dynamic array      singly linked     doubly linked
+//   push_front        O(n)  shift        O(1)              O(1)
+//   push_back         O(1)  amortized    O(n)  walk        O(1)  tail_
+//   pop_front         O(n)  shift        O(1)              O(1)
+//   pop_back          O(1)               O(n)  walk        O(1)  tail_->prev
+//   get(i)            O(1)  arithmetic   O(n)  walk        O(n)  walk
+//   contains          O(n)               O(n)              O(n)
+//
+// No structure wins every row. That table is the whole point of Module 4.
+//
+// Sizes double each step, so read the 'growth' column like this:
+//   ~1x  -> O(1)   doubling n did not change the cost per operation
+//   ~2x  -> O(n)   doubling n doubled the cost per operation
+//
+// Not graded -- run it, read the output, and open charts.html.
 // ============================================================================
 
-#include <chrono>
-#include <iostream>
-#include <iomanip>
-#include <vector>
-#include <string>
-#include <fstream>
-#include <cstdlib>
+#include "DynamicArray.h"
+#include "bench.h"
+#include "lists.h"
 
-// ── Simple Node ─────────────────────────────────────────────────────────────
+#include <algorithm>
 
-struct Node {
-    int data;
-    Node* next;
-    Node(int value, Node* next = nullptr) : data{value}, next{next} {}
-};
+namespace {
 
-// ── Singly Linked List (minimal, for benchmarking) ──────────────────────────
+const std::vector<int> SIZES = {1000, 2000, 4000, 8000, 16000};
+constexpr int RUNS = 3;   // each measurement is repeated; the fastest run counts
 
-class SinglyLinkedList {
-public:
-    SinglyLinkedList() = default;
-
-    ~SinglyLinkedList() {
-        while (head_) {
-            Node* temp = head_;
-            head_ = head_->next;
-            delete temp;
-        }
-    }
-
-    // O(1) — just update the head pointer
-    void push_front(int value) {
-        head_ = new Node(value, head_);
-        size_++;
-    }
-
-    // O(n) — must walk to the end every time
-    void push_back(int value) {
-        Node* new_node = new Node(value);
-        if (!head_) {
-            head_ = new_node;
-        } else {
-            Node* current = head_;
-            while (current->next) {
-                current = current->next;
-            }
-            current->next = new_node;
-        }
-        size_++;
-    }
-
-    // O(1) — just update the head pointer
-    void pop_front() {
-        if (!head_) return;
-        Node* temp = head_;
-        head_ = head_->next;
-        delete temp;
-        size_--;
-    }
-
-    // O(n) — must walk to the second-to-last node
-    void pop_back() {
-        if (!head_) return;
-        if (!head_->next) {
-            delete head_;
-            head_ = nullptr;
-            size_--;
-            return;
-        }
-        Node* previous = head_;
-        Node* current = head_->next;
-        while (current->next) {
-            previous = current;
-            current = current->next;
-        }
-        previous->next = nullptr;
-        delete current;
-        size_--;
-    }
-
-    // O(n) — must scan up to every node
-    bool contains(int value) const {
-        Node* current = head_;
-        while (current) {
-            if (current->data == value) return true;
-            current = current->next;
-        }
-        return false;
-    }
-
-    // O(n) — must find the node, then remove it (trailing pointer)
-    bool remove(int value) {
-        if (!head_) return false;
-        if (head_->data == value) {
-            Node* temp = head_;
-            head_ = head_->next;
-            delete temp;
-            size_--;
-            return true;
-        }
-        Node* previous = head_;
-        Node* current = head_->next;
-        while (current) {
-            if (current->data == value) {
-                previous->next = current->next;
-                delete current;
-                size_--;
-                return true;
-            }
-            previous = current;
-            current = current->next;
-        }
-        return false;
-    }
-
-    int get_size() const { return size_; }
-
-private:
-    Node* head_ = nullptr;
-    int size_ = 0;
-};
-
-// ── Doubly Linked List (minimal, for benchmarking) ──────────────────────────
-
-struct DoublyNode {
-    int data;
-    DoublyNode* next;
-    DoublyNode* prev;
-    DoublyNode(int value, DoublyNode* next = nullptr, DoublyNode* prev = nullptr)
-        : data{value}, next{next}, prev{prev} {}
-};
-
-class DoublyLinkedList {
-public:
-    DoublyLinkedList() = default;
-
-    ~DoublyLinkedList() {
-        while (head_) {
-            DoublyNode* temp = head_;
-            head_ = head_->next;
-            delete temp;
-        }
-    }
-
-    // O(1) — direct pointer update
-    void push_front(int value) {
-        DoublyNode* new_node = new DoublyNode(value, head_);
-        if (head_) head_->prev = new_node;
-        head_ = new_node;
-        if (!tail_) tail_ = new_node;
-        size_++;
-    }
-
-    // O(1) — jump straight to tail_
-    void push_back(int value) {
-        DoublyNode* new_node = new DoublyNode(value, nullptr, tail_);
-        if (tail_) tail_->next = new_node;
-        tail_ = new_node;
-        if (!head_) head_ = new_node;
-        size_++;
-    }
-
-    // O(1) — direct pointer update
-    void pop_front() {
-        if (!head_) return;
-        DoublyNode* temp = head_;
-        head_ = head_->next;
-        if (head_) head_->prev = nullptr;
-        else tail_ = nullptr;
-        delete temp;
-        size_--;
-    }
-
-    // O(1) — retreat via tail_->prev
-    void pop_back() {
-        if (!tail_) return;
-        DoublyNode* temp = tail_;
-        tail_ = tail_->prev;
-        if (tail_) tail_->next = nullptr;
-        else head_ = nullptr;
-        delete temp;
-        size_--;
-    }
-
-    // O(n) — must scan up to every node
-    bool contains(int value) const {
-        DoublyNode* current = head_;
-        while (current) {
-            if (current->data == value) return true;
-            current = current->next;
-        }
-        return false;
-    }
-
-    // O(n) — must find the node, then relink prev/next
-    bool remove(int value) {
-        DoublyNode* current = head_;
-        while (current) {
-            if (current->data == value) {
-                if (current->prev) current->prev->next = current->next;
-                else head_ = current->next;
-                if (current->next) current->next->prev = current->prev;
-                else tail_ = current->prev;
-                delete current;
-                size_--;
-                return true;
-            }
-            current = current->next;
-        }
-        return false;
-    }
-
-    int get_size() const { return size_; }
-
-private:
-    DoublyNode* head_ = nullptr;
-    DoublyNode* tail_ = nullptr;
-    int size_ = 0;
-};
-
-// ── Benchmark Utilities ─────────────────────────────────────────────────────
-
-using Clock = std::chrono::high_resolution_clock;
-
-// Returns elapsed time in microseconds
 template <typename Func>
-double time_us(Func&& func) {
-    auto start = Clock::now();
-    func();
-    auto end = Clock::now();
-    return std::chrono::duration<double, std::micro>(end - start).count();
+double best_us(Func&& func) {
+    double best = 1e300;
+    for (int r = 0; r < RUNS; ++r) best = std::min(best, func());
+    return best;
 }
 
-void print_header(const std::string& title) {
-    std::cout << "\n--- " << title << " ---\n";
-    std::cout << std::setw(12) << "n"
-              << std::setw(15) << "time (us)"
-              << std::setw(15) << "growth" << "\n";
-    std::cout << std::string(42, '-') << "\n";
-}
+// One structure's measurement: microseconds PER OPERATION at size n.
+using Measure = double (*)(int);
 
-void print_row(int n, double time_us, double prev_time_us) {
-    std::cout << std::setw(12) << n
-              << std::setw(15) << std::fixed << std::setprecision(1) << time_us;
-    if (prev_time_us > 0) {
-        std::cout << std::setw(12) << std::setprecision(1) << (time_us / prev_time_us) << "x";
-    }
-    std::cout << "\n";
-}
-
-// ── Benchmark Result (for CSV export) ────────────────────────────────────────
-
-struct BenchResult {
-    std::string operation;
-    std::string structure;
-    std::string complexity;
-    int n;
-    double time_us;
+struct Row {
+    const char* structure;
+    const char* complexity;
+    Measure measure;
 };
 
-// ── Main ────────────────────────────────────────────────────────────────────
+void run(std::vector<BenchResult>& results, const std::string& op,
+         const std::string& note, std::initializer_list<Row> rows) {
+    for (const Row& row : rows) {
+        print_header(op + " -- " + row.structure + " " + row.complexity);
+        double prev = 0;
+        for (int n : SIZES) {
+            double us = best_us([&] { return row.measure(n); });
+            print_row(n, us, prev);
+            results.push_back({op, row.structure, row.complexity, n, us, note});
+            prev = us;
+        }
+    }
+}
+
+// Builds a structure with n elements using push_back (or the array's own).
+template <typename T> void fill(T& s, int n) { for (int i = 0; i < n; ++i) s.push_back(i); }
+template <> void fill(SinglyLinkedList& s, int n) { for (int i = n - 1; i >= 0; --i) s.push_front(i); }
+
+// ── push_front ─────────────────────────────────────────────────────────────
+double arr_push_front(int n) {
+    DynamicArray a(Growth::Double);
+    double t = time_us([&] { for (int i = 0; i < n; ++i) a.insert_front(i); });
+    sink = static_cast<long long>(a.size());
+    return t / n;
+}
+template <typename L> double list_push_front(int n) {
+    double t;
+    { L l; t = time_us([&] { for (int i = 0; i < n; ++i) l.push_front(i); }); sink = static_cast<long long>(l.size()); }
+    return t / n;
+}
+
+// ── push_back ──────────────────────────────────────────────────────────────
+double arr_push_back(int n) {
+    double t;
+    { DynamicArray a(Growth::Double); t = time_us([&] { for (int i = 0; i < n; ++i) a.push_back(i); }); sink = static_cast<long long>(a.size()); }
+    return t / n;
+}
+template <typename L> double list_push_back(int n) {
+    double t;
+    { L l; t = time_us([&] { for (int i = 0; i < n; ++i) l.push_back(i); }); sink = static_cast<long long>(l.size()); }
+    return t / n;
+}
+
+// ── pop_front / pop_back: start full, empty it ─────────────────────────────
+double arr_pop_front(int n) {
+    DynamicArray a(Growth::Double); fill(a, n);
+    double t = time_us([&] { for (int i = 0; i < n; ++i) a.remove_front(); });
+    return t / n;
+}
+double arr_pop_back(int n) {
+    DynamicArray a(Growth::Double); fill(a, n);
+    double t = time_us([&] { for (int i = 0; i < n; ++i) a.pop_back(); });
+    return t / n;
+}
+template <typename L> double list_pop_front(int n) {
+    L l; fill(l, n);
+    double t = time_us([&] { for (int i = 0; i < n; ++i) l.pop_front(); });
+    return t / n;
+}
+template <typename L> double list_pop_back(int n) {
+    L l; fill(l, n);
+    double t = time_us([&] { for (int i = 0; i < n; ++i) l.pop_back(); });
+    return t / n;
+}
+
+// ── get(i) at the middle -- the worst spot for either end of a doubly list ─
+constexpr int GETS = 200;
+double arr_get(int n) {
+    DynamicArray a(Growth::Double); fill(a, n);
+    long long sum = 0;
+    double t = time_us([&] { for (int k = 0; k < GETS; ++k) sum += a.at(n / 2); });
+    sink = sum;
+    return t / GETS;
+}
+template <typename L> double list_get(int n) {
+    L l; fill(l, n);
+    long long sum = 0;
+    double t = time_us([&] { for (int k = 0; k < GETS; ++k) sum += l.get(n / 2); });
+    sink = sum;
+    return t / GETS;
+}
+
+// ── contains, for a value that is never there ──────────────────────────────
+constexpr int SEARCHES = 200;
+double arr_contains(int n) {
+    DynamicArray a(Growth::Double); fill(a, n);
+    int found = 0;
+    double t = time_us([&] { for (int k = 0; k < SEARCHES; ++k) found += a.contains(-1); });
+    sink = found;
+    return t / SEARCHES;
+}
+template <typename L> double list_contains(int n) {
+    L l; fill(l, n);
+    int found = 0;
+    double t = time_us([&] { for (int k = 0; k < SEARCHES; ++k) found += l.contains(-1); });
+    sink = found;
+    return t / SEARCHES;
+}
+
+using SLL = SinglyLinkedList;
+using DLL = DoublyLinkedList;
+
+}  // namespace
 
 int main() {
     std::cout << "============================================================\n";
-    std::cout << "  Big O Demo: Linked Lists\n";
+    std::cout << "  Big O Demo: Linked Lists vs. Arrays -- Time\n";
     std::cout << "============================================================\n";
-    std::cout << "\nThis demo times linked list operations at increasing sizes.\n";
-    std::cout << "Watch the 'growth' column:\n";
-    std::cout << "  - O(1) operations: growth stays near 1x (constant)\n";
-    std::cout << "  - O(n) operations: growth matches the size multiplier\n";
+    std::cout << "\nEach size is double the one before it. Watch 'growth':\n";
+    std::cout << "  ~1x  the cost per operation did not change   -> O(1)\n";
+    std::cout << "  ~2x  the cost per operation doubled with n   -> O(n)\n";
+    std::cout << "Small sizes are noisy; trust the pattern across the bigger rows.\n";
 
-    std::vector<int> sizes = {1000, 2000, 5000, 10000};
-    std::vector<BenchResult> results;
+    std::vector<BenchResult> r;
 
-    // ── push_front: O(1) on both SLL and DLL ────────────────────────────
+    run(r, "push_front", "An array shifts everything right; a list just links one node in front",
+        {{"dynamic array", "O(n)", arr_push_front},
+         {"singly linked", "O(1)", list_push_front<SLL>},
+         {"doubly linked", "O(1)", list_push_front<DLL>}});
 
-    print_header("SLL push_front - O(1)");
-    double prev = 0;
-    for (int n : sizes) {
-        SinglyLinkedList list;
-        double t = time_us([&]() {
-            for (int i = 0; i < n; i++) list.push_front(i);
-        });
-        double per_op = t / n;
-        print_row(n, per_op, prev);
-        results.push_back({"push_front", "SLL", "O(1)", n, per_op});
-        prev = per_op;
-    }
+    run(r, "push_back", "A singly linked list has to walk to its last node; tail_ fixes that",
+        {{"dynamic array", "O(1) amortized", arr_push_back},
+         {"singly linked", "O(n)", list_push_back<SLL>},
+         {"doubly linked", "O(1)", list_push_back<DLL>}});
 
-    print_header("DLL push_front - O(1)");
-    prev = 0;
-    for (int n : sizes) {
-        DoublyLinkedList list;
-        double t = time_us([&]() {
-            for (int i = 0; i < n; i++) list.push_front(i);
-        });
-        double per_op = t / n;
-        print_row(n, per_op, prev);
-        results.push_back({"push_front", "DLL", "O(1)", n, per_op});
-        prev = per_op;
-    }
+    run(r, "pop_front", "An array shifts everything left; a list just moves head_",
+        {{"dynamic array", "O(n)", arr_pop_front},
+         {"singly linked", "O(1)", list_pop_front<SLL>},
+         {"doubly linked", "O(1)", list_pop_front<DLL>}});
 
-    // ── push_back: O(n) on SLL, O(1) on DLL ────────────────────────────
+    run(r, "pop_back", "Singly linked needs the trailing-pointer walk; tail_->prev makes it one step",
+        {{"dynamic array", "O(1)", arr_pop_back},
+         {"singly linked", "O(n)", list_pop_back<SLL>},
+         {"doubly linked", "O(1)", list_pop_back<DLL>}});
 
-    print_header("SLL push_back - O(n)  [THIS IS THE SLOW ONE]");
-    prev = 0;
-    for (int n : sizes) {
-        SinglyLinkedList list;
-        double t = time_us([&]() {
-            for (int i = 0; i < n; i++) list.push_back(i);
-        });
-        double per_op = t / n;
-        print_row(n, per_op, prev);
-        results.push_back({"push_back", "SLL", "O(n)", n, per_op});
-        prev = per_op;
-    }
+    run(r, "get(i) at the middle", "An array computes the address; a list has to walk there",
+        {{"dynamic array", "O(1)", arr_get},
+         {"singly linked", "O(n)", list_get<SLL>},
+         {"doubly linked", "O(n)", list_get<DLL>}});
 
-    print_header("DLL push_back - O(1)  [SAME OPERATION, DIFFERENT STRUCTURE]");
-    prev = 0;
-    for (int n : sizes) {
-        DoublyLinkedList list;
-        double t = time_us([&]() {
-            for (int i = 0; i < n; i++) list.push_back(i);
-        });
-        double per_op = t / n;
-        print_row(n, per_op, prev);
-        results.push_back({"push_back", "DLL", "O(1)", n, per_op});
-        prev = per_op;
-    }
+    run(r, "contains (not found)", "A missing value means checking every element in all three",
+        {{"dynamic array", "O(n)", arr_contains},
+         {"singly linked", "O(n)", list_contains<SLL>},
+         {"doubly linked", "O(n)", list_contains<DLL>}});
 
-    // ── pop_front: O(1) on both SLL and DLL ─────────────────────────────
+    std::cout << "\nWhat to notice:\n";
+    std::cout << "  - The front belongs to lists: push_front and pop_front stay flat\n";
+    std::cout << "    for both lists while the array's cost doubles with n.\n";
+    std::cout << "  - The back is where tail_ earns its keep: singly linked push_back\n";
+    std::cout << "    and pop_back grow with n; doubly linked stays flat.\n";
+    std::cout << "  - get(i) belongs to arrays. A list cannot jump to position i --\n";
+    std::cout << "    even a doubly linked list still walks.\n";
+    std::cout << "  - contains is O(n) for all three, but compare the actual numbers:\n";
+    std::cout << "    the array is usually faster, because its elements sit next to\n";
+    std::cout << "    each other in memory and the CPU's cache loves that.\n";
 
-    print_header("SLL pop_front - O(1)");
-    prev = 0;
-    for (int n : sizes) {
-        SinglyLinkedList list;
-        for (int i = 0; i < n; i++) list.push_front(i);
-        double t = time_us([&]() {
-            for (int i = 0; i < n; i++) list.pop_front();
-        });
-        double per_op = t / n;
-        print_row(n, per_op, prev);
-        results.push_back({"pop_front", "SLL", "O(1)", n, per_op});
-        prev = per_op;
-    }
-
-    print_header("DLL pop_front - O(1)");
-    prev = 0;
-    for (int n : sizes) {
-        DoublyLinkedList list;
-        for (int i = 0; i < n; i++) list.push_front(i);
-        double t = time_us([&]() {
-            for (int i = 0; i < n; i++) list.pop_front();
-        });
-        double per_op = t / n;
-        print_row(n, per_op, prev);
-        results.push_back({"pop_front", "DLL", "O(1)", n, per_op});
-        prev = per_op;
-    }
-
-    // ── pop_back: O(n) on SLL, O(1) on DLL ──────────────────────────────
-
-    print_header("SLL pop_back - O(n)");
-    prev = 0;
-    for (int n : sizes) {
-        SinglyLinkedList list;
-        for (int i = 0; i < n; i++) list.push_front(i);
-        double t = time_us([&]() {
-            for (int i = 0; i < n; i++) list.pop_back();
-        });
-        double per_op = t / n;
-        print_row(n, per_op, prev);
-        results.push_back({"pop_back", "SLL", "O(n)", n, per_op});
-        prev = per_op;
-    }
-
-    print_header("DLL pop_back - O(1)");
-    prev = 0;
-    for (int n : sizes) {
-        DoublyLinkedList list;
-        for (int i = 0; i < n; i++) list.push_front(i);
-        double t = time_us([&]() {
-            for (int i = 0; i < n; i++) list.pop_back();
-        });
-        double per_op = t / n;
-        print_row(n, per_op, prev);
-        results.push_back({"pop_back", "DLL", "O(1)", n, per_op});
-        prev = per_op;
-    }
-
-    // ── contains: O(n) — searching for a value not in the list ──────────
-
-    print_header("SLL contains (worst case) - O(n)");
-    prev = 0;
-    for (int n : sizes) {
-        SinglyLinkedList list;
-        for (int i = 0; i < n; i++) list.push_front(i);
-        double t = time_us([&]() {
-            list.contains(-1);  // not in the list — must scan all n nodes
-        });
-        print_row(n, t, prev);
-        results.push_back({"contains", "SLL", "O(n)", n, t});
-        prev = t;
-    }
-
-    print_header("DLL contains (worst case) - O(n)");
-    prev = 0;
-    for (int n : sizes) {
-        DoublyLinkedList list;
-        for (int i = 0; i < n; i++) list.push_front(i);
-        double t = time_us([&]() {
-            list.contains(-1);  // not in the list — must scan all n nodes
-        });
-        print_row(n, t, prev);
-        results.push_back({"contains", "DLL", "O(n)", n, t});
-        prev = t;
-    }
-
-    // ── remove: O(n) — must find the node first ──────────────────────────
-
-    print_header("SLL remove (worst case) - O(n)");
-    prev = 0;
-    for (int n : sizes) {
-        SinglyLinkedList list;
-        for (int i = 0; i < n; i++) list.push_front(i);
-        double t = time_us([&]() {
-            list.remove(-1);  // not in the list — must scan all n nodes
-        });
-        print_row(n, t, prev);
-        results.push_back({"remove", "SLL", "O(n)", n, t});
-        prev = t;
-    }
-
-    print_header("DLL remove (worst case) - O(n)");
-    prev = 0;
-    for (int n : sizes) {
-        DoublyLinkedList list;
-        for (int i = 0; i < n; i++) list.push_front(i);
-        double t = time_us([&]() {
-            list.remove(-1);  // not in the list — must scan all n nodes
-        });
-        print_row(n, t, prev);
-        results.push_back({"remove", "DLL", "O(n)", n, t});
-        prev = t;
-    }
-
-    // ── Summary ─────────────────────────────────────────────────────────
-
-    std::cout << "\n============================================================\n";
-    std::cout << "  Summary: Linked List Big O\n";
-    std::cout << "============================================================\n";
-    std::cout << "\n";
-    std::cout << "  Operation      | SLL    | DLL    | Why\n";
-    std::cout << "  ---------------|--------|--------|---------------------------\n";
-    std::cout << "  push_front     | O(1)   | O(1)   | Direct pointer update\n";
-    std::cout << "  push_back      | O(n)   | O(1)   | SLL walks; DLL has tail_\n";
-    std::cout << "  pop_front      | O(1)   | O(1)   | Direct pointer update\n";
-    std::cout << "  pop_back       | O(n)   | O(1)   | SLL walks; DLL has prev_\n";
-    std::cout << "  contains       | O(n)   | O(n)   | Must scan the list\n";
-    std::cout << "  remove         | O(n)   | O(n)   | Must find the node first\n";
-    std::cout << "\n";
-    std::cout << "  Key takeaway: Big O describes how performance GROWS\n";
-    std::cout << "  as input size increases - not the actual speed.\n";
-    std::cout << "\n";
-    std::cout << "  O(1) = constant: doubling n doesn't change the time\n";
-    std::cout << "  O(n) = linear:   doubling n roughly doubles the time\n";
-
-    // ── Write CSV and generate charts ──────────────────────────────────
     std::string repo_dir = REPO_DIR;
-    std::string csv_path = repo_dir + "/results.csv";
-    std::ofstream csv(csv_path);
-    csv << "operation,structure,complexity,n,time_us\n";
-    for (const auto& r : results) {
-        csv << r.operation << "," << r.structure << "," << r.complexity
-            << "," << r.n << "," << std::fixed << std::setprecision(4)
-            << r.time_us << "\n";
-    }
-    csv.close();
-    std::cout << "\n  Results written to CSV -- generating charts...\n";
-
-    std::string cmd = "py -3 \"" + repo_dir + "/graph.py\" --graph-only";
-    std::system(cmd.c_str());
-
+    write_time_csv(repo_dir + "/results.csv", r);
+    std::cout << "\n  Results written to results.csv -- generating charts...\n";
+    make_charts(repo_dir, "");
     return 0;
 }

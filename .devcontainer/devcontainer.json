@@ -1,0 +1,28 @@
+{
+  "name": "CS 2420 · big-o-demo-linked-lists",
+  "image": "mcr.microsoft.com/devcontainers/cpp:1-ubuntu-24.04",
+  "containerEnv": {
+    "CC": "gcc-13",
+    "CXX": "g++-13"
+  },
+  "postCreateCommand": "cmake -B build",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+        "github.copilot",
+        "github.copilot-chat"
+      ],
+      "settings": {
+        "cmake.configureOnOpen": true,
+        "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
+        "C_Cpp.default.compilerPath": "/usr/bin/g++-13",
+        "C_Cpp.default.cppStandard": "c++23",
+        "C_Cpp.default.includePath": [
+          "${workspaceFolder}/src"
+        ]
+      }
+    }
+  }
+}
